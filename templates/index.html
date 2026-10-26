@@ -1,0 +1,242 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vitiligo AI Skin Assistant</title>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 25px 15px;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #e8f4ff, #f5efff);
+      color: #203047;
+    }
+
+    .container {
+      max-width: 650px;
+      margin: 20px auto;
+      padding: 28px;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 8px 30px #20304718;
+    }
+
+    h1 { text-align: center; color: #3156a3; }
+    .subtitle { text-align: center; color: #65738b; }
+
+    .section {
+      margin-top: 25px;
+      padding: 18px;
+      border: 1px solid #e0e7f2;
+      border-radius: 14px;
+    }
+
+    h2 { font-size: 19px; }
+
+    button, .upload-label {
+      display: inline-block;
+      border: 0;
+      border-radius: 9px;
+      padding: 12px 16px;
+      margin: 5px 3px;
+      font-size: 15px;
+      cursor: pointer;
+      background: #3156a3;
+      color: white;
+    }
+
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .secondary { background: #52647d; }
+    .green { background: #18845b; }
+
+    video, #photoPreview {
+      display: block;
+      width: 100%;
+      max-height: 360px;
+      object-fit: contain;
+      margin: 12px 0;
+      background: #f0f2f6;
+      border-radius: 12px;
+    }
+
+    #photoPreview { display: none; }
+    #cameraMessage { color: #a13c3c; font-size: 14px; }
+
+    input[type="file"] { max-width: 100%; margin: 12px 0; }
+
+    .result {
+      margin-top: 20px;
+      padding: 18px;
+      border-radius: 12px;
+      background: #edf8f1;
+      text-align: center;
+    }
+
+    .error { color: #b42318; }
+    .disclaimer {
+      margin-top: 22px;
+      color: #697386;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+
+<body>
+<div class="container">
+  <h1>Vitiligo AI Skin Assistant</h1>
+  <p class="subtitle">Upload a skin image or capture a photo with your camera.</p>
+
+  <div class="section">
+    <h2>Option 1: Capture a Photo</h2>
+
+    <video id="camera" autoplay playsinline muted></video>
+    <canvas id="canvas" hidden></canvas>
+    <img id="photoPreview" alt="Captured skin photo">
+
+    <button type="button" id="startCamera">Start Camera</button>
+    <button type="button" id="capturePhoto" disabled>Capture Photo</button>
+    <button type="button" id="retakePhoto" class="secondary" hidden>Retake</button>
+
+    <p id="cameraMessage" aria-live="polite"></p>
+
+    <form id="cameraForm" method="POST" enctype="multipart/form-data">
+      <input type="hidden" name="camera_image" id="cameraImage">
+      <button type="submit" id="predictPhoto" class="green" disabled>
+        Use Photo & Predict
+      </button>
+    </form>
+  </div>
+
+  <div class="section">
+    <h2>Option 2: Upload an Image</h2>
+
+    <form method="POST" enctype="multipart/form-data">
+      <input type="file" name="image" accept="image/*" required>
+      <br>
+      <button type="submit">Upload & Predict</button>
+    </form>
+  </div>
+
+  {% if result %}
+  <div class="result">
+    <h2>Prediction Result</h2>
+    <p><strong>Predicted class:</strong> {{ result }}</p>
+    <p><strong>Model confidence:</strong> {{ confidence }}%</p>
+    <p>This is an AI prediction, not a medical diagnosis.</p>
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <p class="error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <p class="disclaimer">
+    Educational prototype only. Camera predictions may be affected by lighting,
+    image quality and skin appearance. Consult a qualified dermatologist for
+    diagnosis. Use only images you have permission to capture.
+  </p>
+</div>
+
+<script>
+  const video = document.getElementById("camera");
+  const canvas = document.getElementById("canvas");
+  const preview = document.getElementById("photoPreview");
+  const startButton = document.getElementById("startCamera");
+  const captureButton = document.getElementById("capturePhoto");
+  const retakeButton = document.getElementById("retakePhoto");
+  const predictButton = document.getElementById("predictPhoto");
+  const cameraInput = document.getElementById("cameraImage");
+  const message = document.getElementById("cameraMessage");
+  const cameraForm = document.getElementById("cameraForm");
+
+  let cameraStream = null;
+
+  startButton.addEventListener("click", async () => {
+    message.textContent = "";
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      message.textContent = "Camera is unavailable. Open the website using its HTTPS link.";
+      return;
+    }
+
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false
+      });
+
+      video.srcObject = cameraStream;
+      await video.play();
+
+      video.style.display = "block";
+      preview.style.display = "none";
+      captureButton.disabled = false;
+      predictButton.disabled = true;
+      cameraInput.value = "";
+      message.textContent = "Camera ready. Position the skin in the frame.";
+    } catch (error) {
+      message.textContent =
+        "Camera access failed. Allow camera permission in your browser and try again.";
+    }
+  });
+
+  captureButton.addEventListener("click", () => {
+    if (!video.videoWidth || !video.videoHeight) {
+      message.textContent = "Camera is not ready yet. Please wait.";
+      return;
+    }
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const context = canvas.getContext("2d");
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const photoData = canvas.toDataURL("image/jpeg", 0.9);
+    cameraInput.value = photoData;
+    preview.src = photoData;
+    preview.style.display = "block";
+    video.style.display = "none";
+
+    captureButton.disabled = true;
+    predictButton.disabled = false;
+    retakeButton.hidden = false;
+    message.textContent = "Photo captured. Select Use Photo & Predict.";
+  });
+
+  retakeButton.addEventListener("click", () => {
+    cameraInput.value = "";
+    predictButton.disabled = true;
+    retakeButton.hidden = true;
+    preview.style.display = "none";
+
+    if (cameraStream) {
+      video.style.display = "block";
+      captureButton.disabled = false;
+    } else {
+      startButton.click();
+    }
+  });
+
+  cameraForm.addEventListener("submit", (event) => {
+    if (!cameraInput.value) {
+      event.preventDefault();
+      message.textContent = "Please capture a photo first.";
+    }
+  });
+
+  window.addEventListener("pagehide", () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+    }
+  });
+</script>
+</body>
+</html>
